@@ -105,7 +105,6 @@ func NewNomad(url string, updateCh chan *Action) (*Nomad, error) {
 func (n *Nomad) FlushAll(c *Connection) {
 	c.send <- &Action{Type: readOnly, Payload: n.readOnly}
 	c.send <- &Action{Type: fetchedAllocs, Payload: n.allocs}
-	c.send <- &Action{Type: fetchedEvals, Payload: n.evals}
 	c.send <- &Action{Type: fetchedJobs, Payload: n.jobs}
 	c.send <- &Action{Type: fetchedNodes, Payload: n.nodes}
 	c.send <- &Action{Type: fetchedMembers, Payload: n.members}
@@ -187,25 +186,26 @@ func (n *Nomad) watchAllocs() {
 }
 
 func (n *Nomad) watchEvals() {
-	q := &api.QueryOptions{WaitIndex: 1}
-	for {
-		evals, meta, err := n.Client.Evaluations().List(q)
-		if err != nil {
-			logger.Errorf("watch: unable to fetch evaluations: %s", err)
-			time.Sleep(10 * time.Second)
-			continue
-		}
-		n.evals = evals
-		n.updateCh <- &Action{Type: fetchedEvals, Payload: evals}
-
-		// Guard for zero LastIndex in case of timeout
-		waitIndex := meta.LastIndex
-		if q.WaitIndex > meta.LastIndex {
-			waitIndex = q.WaitIndex
-		}
-		time.Sleep(10 * time.Second)
-		q = &api.QueryOptions{WaitIndex: waitIndex}
-	}
+	return
+	//	q := &api.QueryOptions{WaitIndex: 1}
+	//	for {
+	//		evals, meta, err := n.Client.Evaluations().List(q)
+	//		if err != nil {
+	//			logger.Errorf("watch: unable to fetch evaluations: %s", err)
+	//			time.Sleep(10 * time.Second)
+	//			continue
+	//		}
+	//		n.evals = evals
+	//		n.updateCh <- &Action{Type: fetchedEvals, Payload: evals}
+	//
+	//		// Guard for zero LastIndex in case of timeout
+	//		waitIndex := meta.LastIndex
+	//		if q.WaitIndex > meta.LastIndex {
+	//			waitIndex = q.WaitIndex
+	//		}
+	//		time.Sleep(10 * time.Second)
+	//		q = &api.QueryOptions{WaitIndex: waitIndex}
+	//	}
 }
 
 func (n *Nomad) watchJobs() {

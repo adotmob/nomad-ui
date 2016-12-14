@@ -106,21 +106,21 @@ func (c *Connection) process(action Action) {
 	case stopJob:
 		c.stopJob(action)
 	case fetchMember:
-		c.fetchMember(action)
+		go c.fetchMember(action)
 	case fetchNode:
-		c.fetchNode(action)
+		go c.fetchNode(action)
 	case fetchDir:
-		c.fetchDir(action)
+		go c.fetchDir(action)
 	case watchJob:
-		go c.watchJob(action)
+		go c.fetchJob(action)
 	case watchAlloc:
-		go c.watchAlloc(action)
+		go c.fetchAlloc(action)
 	case watchEval:
-		go c.watchEval(action)
+		c.fetchEval(action)
 	case watchMember:
-		go c.watchMember(action)
+		go c.fetchMember(action)
 	case watchNode:
-		go c.watchNode(action)
+		go c.fetchNode(action)
 	case watchFile:
 		go c.watchFile(action)
 	case unwatchEval:
@@ -132,7 +132,7 @@ func (c *Connection) process(action Action) {
 	case unwatchJob:
 		fallthrough
 	case unwatchAlloc:
-		c.watches.Remove(action.Payload.(string))
+		fallthrough
 	case unwatchFile:
 		c.watches.Remove(action.Payload.(string))
 	}
@@ -213,78 +213,26 @@ func (c *Connection) planJob(action Action) {
 	c.send <- &Action{Type: "JOB_PLAN", Payload: plan}
 }
 
-func (c *Connection) watchAlloc(action Action) {
+func (c *Connection) fetchAlloc(action Action) {
 	allocID := action.Payload.(string)
 
-	defer func() {
-		c.watches.Remove(allocID)
-		logger.Infof("Stopped watching alloc with id: %s", allocID)
-	}()
-	c.watches.Add(allocID)
-
-	logger.Infof("Started watching alloc with id: %s", allocID)
-
 	q := &api.QueryOptions{WaitIndex: 1}
-	for {
-		select {
-		case <-c.destroyCh:
-			return
-		default:
-			alloc, meta, err := c.hub.nomad.Client.Allocations().Info(allocID, q)
-			if err != nil {
-				logger.Errorf("connection: unable to fetch alloc info: %s", err)
-				time.Sleep(10 * time.Second)
-				continue
-			}
-			if !c.watches.Has(allocID) {
-				return
-			}
-			c.send <- &Action{Type: fetchedAlloc, Payload: alloc}
-
-			waitIndex := meta.LastIndex
-			if q.WaitIndex > meta.LastIndex {
-				waitIndex = q.WaitIndex
-			}
-			q = &api.QueryOptions{WaitIndex: waitIndex, WaitTime: 10 * time.Second}
-		}
+	alloc, _, err := c.hub.nomad.Client.Allocations().Info(allocID, q)
+	if err != nil {
+		logger.Errorf("connection: unable to fetch alloc info: %s", err)
 	}
+	c.send <- &Action{Type: fetchedAlloc, Payload: alloc}
 }
 
-func (c *Connection) watchEval(action Action) {
+func (c *Connection) fetchEval(action Action) {
 	evalID := action.Payload.(string)
 
-	defer func() {
-		c.watches.Remove(evalID)
-		logger.Infof("Stopped watching eval with id: %s", evalID)
-	}()
-	c.watches.Add(evalID)
-
-	logger.Infof("Started watching eval with id: %s", evalID)
-
 	q := &api.QueryOptions{WaitIndex: 1}
-	for {
-		select {
-		case <-c.destroyCh:
-			return
-		default:
-			eval, meta, err := c.hub.nomad.Client.Evaluations().Info(evalID, q)
-			if err != nil {
-				logger.Errorf("connection: unable to fetch eval info: %s", err)
-				time.Sleep(10 * time.Second)
-				continue
-			}
-			if !c.watches.Has(evalID) {
-				return
-			}
-			c.send <- &Action{Type: fetchedEval, Payload: eval}
-
-			waitIndex := meta.LastIndex
-			if q.WaitIndex > meta.LastIndex {
-				waitIndex = q.WaitIndex
-			}
-			q = &api.QueryOptions{WaitIndex: waitIndex, WaitTime: 10 * time.Second}
-		}
+	eval, _, err := c.hub.nomad.Client.Evaluations().Info(evalID, q)
+	if err != nil {
+		logger.Errorf("connection: unable to fetch eval info: %s", err)
 	}
+	c.send <- &Action{Type: fetchedEval, Payload: eval}
 }
 
 func (c *Connection) fetchMember(action Action) {
@@ -376,41 +324,15 @@ func (c *Connection) watchNode(action Action) {
 	}
 }
 
-func (c *Connection) watchJob(action Action) {
+func (c *Connection) fetchJob(action Action) {
 	jobID := action.Payload.(string)
 
-	defer func() {
-		c.watches.Remove(jobID)
-		logger.Infof("Stopped watching job with id: %s", jobID)
-	}()
-	c.watches.Add(jobID)
-
-	logger.Infof("Started watching job with id: %s", jobID)
-
 	q := &api.QueryOptions{WaitIndex: 1}
-	for {
-		select {
-		case <-c.destroyCh:
-			return
-		default:
-			job, meta, err := c.hub.nomad.Client.Jobs().Info(jobID, q)
-			if err != nil {
-				logger.Errorf("connection: unable to fetch job info: %s", err)
-				time.Sleep(10 * time.Second)
-				continue
-			}
-			if !c.watches.Has(jobID) {
-				return
-			}
-			c.send <- &Action{Type: fetchedJob, Payload: job}
-
-			waitIndex := meta.LastIndex
-			if q.WaitIndex > meta.LastIndex {
-				waitIndex = q.WaitIndex
-			}
-			q = &api.QueryOptions{WaitIndex: waitIndex, WaitTime: 10 * time.Second}
-		}
+	job, _, err := c.hub.nomad.Client.Jobs().Info(jobID, q)
+	if err != nil {
+		logger.Errorf("connection: unable to fetch job info: %s", err)
 	}
+	c.send <- &Action{Type: fetchedJob, Payload: job}
 }
 
 func (c *Connection) fetchDir(action Action) {

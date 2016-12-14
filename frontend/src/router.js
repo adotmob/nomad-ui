@@ -20,7 +20,6 @@ import AllocInfo from './components/allocation/info';
 import AllocFiles from './components/allocation/files';
 import AllocRaw from './components/allocation/raw';
 
-import Evaluations from './containers/evaluations';
 import Evaluation from './containers/evaluation';
 import EvalInfo from './components/evaluation/info';
 import EvalAlloc from './components/evaluation/allocs';
@@ -85,7 +84,6 @@ const AppRouter = ({ history }) =>
         <Route path="/allocations/:allocId/raw" component={ AllocRaw } />
       </Route>
 
-      <Route path="/evaluations" component={ Evaluations } />
       <Route path="/evaluations/:evalId" component={ Evaluation }>
         <IndexRedirect to="/evaluations/:evalId/info" />
         <Route path="/evaluations/:evalId/info" component={ EvalInfo } />

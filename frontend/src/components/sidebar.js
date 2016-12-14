@@ -47,12 +47,6 @@ class Sidebar extends PureComponent {
                     <p>Allocations</p>
                   </Link>
                 </li>
-                <li className={ location.pathname.startsWith('/evaluations') ? 'active' : '' }>
-                  <Link onClick={ this.onLinkClick } to={{ pathname: '/evaluations' }}>
-                    <i className="pe-7s-gleam" />
-                    <p>Evaluations</p>
-                  </Link>
-                </li>
                 <li className={ location.pathname.startsWith('/clients') ? 'active' : '' }>
                   <Link onClick={ this.onLinkClick } to={{ pathname: '/clients' }}>
                     <i className="pe-7s-keypad" />
