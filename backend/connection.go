@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"strconv"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/nomad/api"
-	"github.com/hashicorp/nomad/command"
 )
 
 const (
@@ -414,34 +412,35 @@ func (c *Connection) watchJob(action Action) {
 }
 
 func (c *Connection) fetchDir(action Action) {
-	params, ok := action.Payload.(map[string]interface{})
-	if !ok {
-		logger.Errorf("Could not decode payload")
-		return
-	}
-	addr := params["addr"].(string)
-	path := params["path"].(string)
-	allocID := params["allocID"].(string)
+	/*	params, ok := action.Payload.(map[string]interface{})
+		if !ok {
+			logger.Errorf("Could not decode payload")
+			return
+		}
+		addr := params["addr"].(string)
+		path := params["path"].(string)
+		allocID := params["allocID"].(string)
 
-	config := api.DefaultConfig()
-	config.Address = fmt.Sprintf("http://%s", addr)
+		config := api.DefaultConfig()
+		config.Address = fmt.Sprintf("http://%s", addr)
 
-	client, err := api.NewClient(config)
-	if err != nil {
-		logger.Fatalf("Could not create client: %s", err)
-		return
-	}
-	alloc, _, err := client.Allocations().Info(allocID, nil)
-	if err != nil {
-		logger.Errorf("Unable to fetch alloc: %s", err)
-		return
-	}
-	dir, _, err := client.AllocFS().List(alloc, path, nil)
-	if err != nil {
-		logger.Errorf("Unable to fetch directory: %s", err)
-	}
+		client, err := api.NewClient(config)
+		if err != nil {
+			logger.Fatalf("Could not create client: %s", err)
+			return
+		}
+		alloc, _, err := client.Allocations().Info(allocID, nil)
+		if err != nil {
+			logger.Errorf("Unable to fetch alloc: %s", err)
+			return
+		}
+		dir, _, err := client.AllocFS().List(alloc, path, nil)
+		if err != nil {
+			logger.Errorf("Unable to fetch directory: %s", err)
+		}
 
-	c.send <- &Action{Type: fetchedDir, Payload: dir}
+		c.send <- &Action{Type: fetchedDir, Payload: dir}
+	*/
 }
 
 type Line struct {
@@ -450,127 +449,128 @@ type Line struct {
 }
 
 func (c *Connection) watchFile(action Action) {
-	params, ok := action.Payload.(map[string]interface{})
-	if !ok {
-		logger.Error("Could not decode payload")
-		return
-	}
-	addr := params["addr"].(string)
-	path := params["path"].(string)
-	allocID := params["allocID"].(string)
+	/*	params, ok := action.Payload.(map[string]interface{})
+		if !ok {
+			logger.Error("Could not decode payload")
+			return
+		}
+		addr := params["addr"].(string)
+		path := params["path"].(string)
+		allocID := params["allocID"].(string)
 
-	config := api.DefaultConfig()
-	config.Address = fmt.Sprintf("http://%s", addr)
+		config := api.DefaultConfig()
+		config.Address = fmt.Sprintf("http://%s", addr)
 
-	client, err := api.NewClient(config)
-	if err != nil {
-		logger.Errorf("Could not create client: %s", err)
-		return
-	}
-	alloc, _, err := client.Allocations().Info(allocID, nil)
-	if err != nil {
-		logger.Errorf("Unable to fetch alloc: %s", err)
-		return
-	}
+		client, err := api.NewClient(config)
+		if err != nil {
+			logger.Errorf("Could not create client: %s", err)
+			return
+		}
+		alloc, _, err := client.Allocations().Info(allocID, nil)
+		if err != nil {
+			logger.Errorf("Unable to fetch alloc: %s", err)
+			return
+		}
 
-	// Get file stat info
-	file, _, err := client.AllocFS().Stat(alloc, path, nil)
-	if err != nil {
-		logger.Errorf("Unable to stat file: %s", err)
-		return
-	}
+		// Get file stat info
+		file, _, err := client.AllocFS().Stat(alloc, path, nil)
+		if err != nil {
+			logger.Errorf("Unable to stat file: %s", err)
+			return
+		}
 
-	var origin string = api.OriginStart
-	var offset int64 = 0
-	var oversized bool
-	if file.Size > maxFileSize {
-		origin = api.OriginEnd
-		offset = maxFileSize
-		oversized = true
-	}
+		var origin string = api.OriginStart
+		var offset int64 = 0
+		var oversized bool
+		if file.Size > maxFileSize {
+			origin = api.OriginEnd
+			offset = maxFileSize
+			oversized = true
+		}
 
-	cancel := make(chan struct{})
-	frames, err := client.AllocFS().Stream(alloc, path, origin, offset, cancel, nil)
-	if err != nil {
+		cancel := make(chan struct{})
+		frames, err := client.AllocFS().Stream(alloc, path, origin, offset, cancel, nil)
+		if err != nil {
+			c.send <- &Action{
+				Type: fileStreamFailed,
+				Payload: struct {
+					path string
+				}{
+					path: path,
+				},
+			}
+
+			logger.Errorf("Unable to stream file: %s", err)
+			return
+		}
+
+		var r io.ReadCloser
+		frameReader := api.NewFrameReader(frames, cancel)
+		frameReader.SetUnblockTime(500 * time.Millisecond)
+		r = command.NewLineLimitReader(frameReader, int(defaultTailLines), int(defaultTailLines*bytesToLines), 1*time.Second)
+
+		// Turn the reader into a channel
+		lines := make(chan []byte)
+		b := make([]byte, defaultTailLines*bytesToLines)
+		go func() {
+			for {
+				n, err := r.Read(b[:cap(b)])
+				if err != nil {
+					return
+				}
+				if n > 0 {
+					lines <- b[0:n]
+				}
+			}
+		}()
+
+		c.watches.Add(path)
+		defer func() {
+			logger.Infof("Stopped watching file with path: %s", path)
+			c.watches.Remove(path)
+			r.Close()
+		}()
+
+		logger.Infof("Started watching file with path: %s", path)
 		c.send <- &Action{
-			Type: fileStreamFailed,
+			Type: fetchedFile,
 			Payload: struct {
-				path string
+				File      string
+				Data      string
+				Oversized bool
 			}{
-				path: path,
+				File:      path,
+				Data:      "",
+				Oversized: oversized,
 			},
 		}
 
-		logger.Errorf("Unable to stream file: %s", err)
-		return
-	}
-
-	var r io.ReadCloser
-	frameReader := api.NewFrameReader(frames, cancel)
-	frameReader.SetUnblockTime(500 * time.Millisecond)
-	r = command.NewLineLimitReader(frameReader, int(defaultTailLines), int(defaultTailLines*bytesToLines), 1*time.Second)
-
-	// Turn the reader into a channel
-	lines := make(chan []byte)
-	b := make([]byte, defaultTailLines*bytesToLines)
-	go func() {
+		ticker := time.NewTicker(10 * time.Second)
 		for {
-			n, err := r.Read(b[:cap(b)])
-			if err != nil {
+			select {
+			case <-c.destroyCh:
 				return
-			}
-			if n > 0 {
-				lines <- b[0:n]
+			case line := <-lines:
+				if !c.watches.Has(path) {
+					return
+				}
+				c.send <- &Action{
+					Type: fetchedFile,
+					Payload: struct {
+						File      string
+						Data      string
+						Oversized bool
+					}{
+						File:      path,
+						Data:      string(line),
+						Oversized: oversized,
+					},
+				}
+			case <-ticker.C:
+				if !c.watches.Has(path) {
+					return
+				}
 			}
 		}
-	}()
-
-	c.watches.Add(path)
-	defer func() {
-		logger.Infof("Stopped watching file with path: %s", path)
-		c.watches.Remove(path)
-		r.Close()
-	}()
-
-	logger.Infof("Started watching file with path: %s", path)
-	c.send <- &Action{
-		Type: fetchedFile,
-		Payload: struct {
-			File      string
-			Data      string
-			Oversized bool
-		}{
-			File:      path,
-			Data:      "",
-			Oversized: oversized,
-		},
-	}
-
-	ticker := time.NewTicker(10 * time.Second)
-	for {
-		select {
-		case <-c.destroyCh:
-			return
-		case line := <-lines:
-			if !c.watches.Has(path) {
-				return
-			}
-			c.send <- &Action{
-				Type: fetchedFile,
-				Payload: struct {
-					File      string
-					Data      string
-					Oversized bool
-				}{
-					File:      path,
-					Data:      string(line),
-					Oversized: oversized,
-				},
-			}
-		case <-ticker.C:
-			if !c.watches.Has(path) {
-				return
-			}
-		}
-	}
+	*/
 }
